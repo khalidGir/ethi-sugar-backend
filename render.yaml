@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: ethiosugar-backend
+    env: node
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://ethio_sugar_db_user:HNfAEVBIhWzEsBQ828ezyDbuTrg9nD2l@dpg-d6bmt3rh46gs73br97r0-a.oregon-postgres.render.com/ethio_sugar_db
+      - key: JWT_SECRET
+        value: ethiosugar-jwt-secret-2024-change-in-production
+      - key: N8N_WEBHOOK_INCIDENT
+        value: https://your-n8n-instance/webhook/incident
+      - key: N8N_WEBHOOK_IRRIGATION
+        value: https://your-n8n-instance/webhook/irrigation
+      - key: INTERNAL_API_TOKEN
+        value: ethiosugar-internal-token-2024
+      - key: AI_API_KEY
+        value: your-ai-api-key
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: CORS_ORIGIN
+        value: "*"
+    autoDeploy: true
+    region: oregon
