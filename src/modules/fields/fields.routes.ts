@@ -125,6 +125,89 @@ router.get('/', authenticate, async (req, res: Response) => {
  *       404:
  *         description: Field not found
  */
+/**
+ * @swagger
+ * /api/v1/fields/{id}:
+ *   get:
+ *     summary: Get field by ID
+ *     description: Get field details by ID (All authenticated users)
+ *     tags: [Fields]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Field details
+ *       404:
+ *         description: Field not found
+ */
+router.get('/:id', authenticate, async (req, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const field = await prisma.field.findUnique({
+      where: { id },
+      include: {
+        incidents: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
+        irrigationLogs: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
+        tasks: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!field) {
+      return notFoundError(res, 'Field not found');
+    }
+
+    return successResponse(res, field);
+  } catch (error) {
+    logger.error({ error, fieldId: req.params.id }, 'Error fetching field');
+    return errorResponse(res);
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/fields/{id}:
+ *   patch:
+ *     summary: Update field
+ *     description: Update field details (Admin only)
+ *     tags: [Fields]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateFieldRequest'
+ *     responses:
+ *       200:
+ *         description: Field updated
+ *       404:
+ *         description: Field not found
+ */
 router.patch('/:id', authenticate, authorize(Role.ADMIN), validate(updateFieldSchema), async (req, res: Response) => {
   try {
     const { id } = req.params;

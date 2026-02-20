@@ -61,6 +61,7 @@ app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/fields', fieldsRoutes);
 app.use('/api/v1/incidents', incidentsRoutes);
 app.use('/api/v1/irrigation-logs', irrigationRoutes);
+app.use('/api/v1/irrigation', irrigationRoutes);
 app.use('/api/v1/tasks', tasksRoutes);
 app.use('/internal', internalRoutes);
 
