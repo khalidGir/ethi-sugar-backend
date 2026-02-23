@@ -21,9 +21,9 @@ enum IncidentType {
 }
 
 enum Severity {
-  LOW
-  MEDIUM
-  HIGH
+  NORMAL
+  WARNING
+  CRITICAL
 }
 
 enum IncidentStatus {
@@ -50,11 +50,13 @@ model User {
   passwordHash String
   role         Role
   isActive     Boolean  @default(true)
+  telegramUsername String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   incidents      Incident[]      @relation("ReportedIncidents")
   irrigationLogs IrrigationLog[]
+  assignedTasks  Task[]          @relation("AssignedTasks")
 }
 
 model Field {
@@ -110,15 +112,37 @@ model Task {
   incident    Incident?   @relation(fields: [incidentId], references: [id])
   incidentId  String?
 
+  assignedTo  User?       @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  assignedToId String?
+
   title       String
   description String
   status      TaskStatus  @default(OPEN)
   priority    TaskPriority @default(NORMAL)
+  dueDate     DateTime?
+  completedAt DateTime?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([status])
+  @@index([assignedToId])
+  @@index([dueDate])
+  @@index([completedAt])
+}
+
+model TaskHistory {
+  id            String      @id @default(uuid())
+  taskId        String
+  previousStatus TaskStatus?
+  newStatus     TaskStatus
+  changedBy     String
+  note          String?
+  createdAt     DateTime    @default(now())
+
+  @@index([taskId])
+  @@index([changedBy])
+  @@index([createdAt])
 }
 
 model NotificationLog {

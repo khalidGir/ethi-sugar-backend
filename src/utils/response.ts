@@ -48,3 +48,7 @@ export const notFoundError = (res: Response, message = 'Resource not found'): Re
 export const conflictError = (res: Response, message: string): Response<ApiResponse> => {
   return errorResponse(res, message, 'CONFLICT', 409);
 };
+
+export const badRequestError = (res: Response, message: string): Response<ApiResponse> => {
+  return errorResponse(res, message, 'BAD_REQUEST', 400);
+};

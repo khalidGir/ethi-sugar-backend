@@ -11,6 +11,42 @@ const router = Router();
 
 /**
  * @swagger
+ * /api/v1/users/summary:
+ *   get:
+ *     summary: Dashboard summary
+ *     description: Get dashboard summary statistics
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard summary
+ */
+router.get('/summary', authenticate, async (req, res: Response) => {
+  try {
+    const [totalFields, totalIncidents, openIncidents, pendingTasks, completedTasks] = await Promise.all([
+      prisma.field.count(),
+      prisma.incident.count(),
+      prisma.incident.count({ where: { status: 'OPEN' } }),
+      prisma.task.count({ where: { status: 'OPEN' } }),
+      prisma.task.count({ where: { status: 'COMPLETED' } }),
+    ]);
+
+    return successResponse(res, {
+      totalFields,
+      totalIncidents,
+      openIncidents,
+      pendingTasks,
+      completedTasks,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching dashboard summary');
+    return errorResponse(res);
+  }
+});
+
+/**
+ * @swagger
  * /api/v1/users:
  *   get:
  *     summary: List all users

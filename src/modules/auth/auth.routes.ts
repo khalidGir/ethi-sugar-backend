@@ -54,9 +54,14 @@ router.post('/login', validate(loginSchema), async (req, res: Response) => {
       return errorResponse(res, 'Invalid credentials', 'INVALID_CREDENTIALS', 401);
     }
 
+    if (!process.env.JWT_SECRET) {
+      logger.error('JWT_SECRET is not defined');
+      return errorResponse(res, 'Server configuration error', 'CONFIG_ERROR', 500);
+    }
+
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'secret',
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 

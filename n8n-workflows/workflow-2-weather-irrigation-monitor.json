@@ -1,0 +1,332 @@
+{
+  "name": "Weather Irrigation Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Every 3 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/v1/weather/forecast"
+      },
+      "id": "get-weather",
+      "name": "Get Weather Forecast",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check if rain expected > 15mm in next 24h\nconst weather = $input.first().json.data;\nconst todayRain = weather?.forecast?.[0]?.rainfallMm || 0;\n\nif (todayRain > 15) {\n  return [{ json: { shouldPostpone: true, rainMm: todayRain } }];\n}\n\nreturn [{ json: { shouldPostpone: false, rainMm: todayRain } }];"
+      },
+      "id": "check-rain",
+      "name": "Check Rain Threshold",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Only continue if shouldPostpone is true\nif ($input.first().json.shouldPostpone) {\n  return $input.all();\n}\nreturn [];"
+      },
+      "id": "filter-rain",
+      "name": "Filter Rain Alert",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/v1/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.jwtToken}}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "OPEN"
+            }
+          ]
+        }
+      },
+      "id": "get-irrigation-tasks",
+      "name": "Get Open Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300],
+      "credentials": {
+        "httpHeaderAuth": "ethiosugar-api"
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Filter to only irrigation-related tasks\nconst tasks = $input.first().json.data || [];\nconst irrigationTasks = tasks.filter(task => {\n  const title = (task.title || '').toLowerCase();\n  const desc = (task.description || '').toLowerCase();\n  return title.includes('irrigat') || desc.includes('irrigat');\n});\n\nreturn irrigationTasks.map(task => ({ json: task }));"
+      },
+      "id": "filter-irrigation",
+      "name": "Filter Irrigation Tasks",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:3001/api/v1/tasks/{{$json.id}}/status",
+        "method": "PATCH",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "POSTPONED"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.jwtToken}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "postpone-task",
+      "name": "Postpone Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 300],
+      "credentials": {
+        "httpHeaderAuth": "ethiosugar-api"
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format notification message\nconst task = $input.first().json;\nconst rainMm = $('Check Rain Threshold').first().json.rainMm;\n\nreturn {\n  json: {\n    message: `🌧️ <b>Rain Alert - Task Postponed</b>\\n\\nTask: ${task.title}\\nReason: Rain expected (${rainMm}mm)\\nStatus: Postponed until weather improves\\n\\nPlease check for rescheduling after rain passes.`\n  }\n};"
+      },
+      "id": "format-message",
+      "name": "Format Notification",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "Khalidblabla"
+            },
+            {
+              "name": "text",
+              "value": "{{$json.message}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "notify-supervisor",
+      "name": "Notify Supervisor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 300],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Error handler\nreturn {\n  json: {\n    error: $input.first().json.error || 'Unknown error',\n    workflow: 'Weather Irrigation Monitor'\n  }\n};"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 450],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "Khalidblabla"
+            },
+            {
+              "name": "text",
+              "value": "🚨 <b>Workflow Error</b>\n\nWorkflow: Weather Irrigation Monitor\nError: {{$json.error}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "alert-admin",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 450],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    }
+  ],
+  "connections": {
+    "Every 3 Hours": {
+      "main": [
+        [
+          {
+            "node": "Get Weather Forecast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Weather Forecast": {
+      "main": [
+        [
+          {
+            "node": "Check Rain Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Rain Threshold": {
+      "main": [
+        [
+          {
+            "node": "Filter Rain Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Rain Alert": {
+      "main": [
+        [
+          {
+            "node": "Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Open Tasks": {
+      "main": [
+        [
+          {
+            "node": "Filter Irrigation Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Irrigation Tasks": {
+      "main": [
+        [
+          {
+            "node": "Postpone Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postpone Task": {
+      "main": [
+        [
+          {
+            "node": "Format Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        {
+          "node": "Error Handler",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    },
+    "Format Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Supervisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["ethiosugar", "weather", "irrigation"],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-22T12:00:00.000Z",
+  "versionId": "1"
+}

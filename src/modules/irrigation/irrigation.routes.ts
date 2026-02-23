@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { AuthRequest } from '../../types/express';
 import prisma from '../../config/database';
 import { createIrrigationLogSchema, CreateIrrigationLogInput } from '../../utils/validation';
 import { validate } from '../../middlewares/validate';
@@ -7,6 +8,7 @@ import { successResponse, notFoundError, errorResponse } from '../../utils/respo
 import { Role, TaskPriority, IrrigationStatus } from '../../types/enums';
 import { triggerIrrigationWebhook } from '../integrations/n8n/n8n.service';
 import logger from '../../config/logger';
+import { IrrigationLog } from '@prisma/client';
 
 const router = Router();
 
@@ -71,7 +73,7 @@ const checkEscalation = async (fieldId: string): Promise<boolean> => {
  *       404:
  *         description: Field not found
  */
-router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate(createIrrigationLogSchema), async (req, res: Response) => {
+router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate(createIrrigationLogSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { fieldId, moistureDeficit } = req.body as CreateIrrigationLogInput;
     const userId = req.user!.id;
@@ -87,40 +89,65 @@ router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate
       field.criticalThreshold
     );
 
-    const irrigationLog = await prisma.irrigationLog.create({
-      data: {
-        fieldId,
-        moistureDeficit,
-        recordedById: userId,
-      },
-    });
+    let irrigationLog: IrrigationLog | null = null;
+    let createdTaskId: string | null = null;
 
-    logger.info(
-      { irrigationLogId: irrigationLog.id, fieldId, moistureDeficit, status },
-      'Irrigation log created'
-    );
-
-    if (status === IrrigationStatus.CRITICAL) {
-      const escalated = await checkEscalation(fieldId);
-      const finalStatus = escalated ? IrrigationStatus.CRITICAL : status;
-
-      await prisma.task.create({
+    await prisma.$transaction(async (tx) => {
+      irrigationLog = await tx.irrigationLog.create({
         data: {
           fieldId,
-          title: `Critical irrigation required - Field ${field.name}`,
-          description: `Moisture deficit: ${moistureDeficit}. Immediate irrigation needed.`,
-          priority: escalated ? TaskPriority.CRITICAL : TaskPriority.CRITICAL,
+          moistureDeficit,
+          recordedById: userId,
         },
       });
 
-      triggerIrrigationWebhook(irrigationLog, finalStatus).catch((err) => {
-        logger.error({ error: err, irrigationLogId: irrigationLog.id }, 'Failed to trigger irrigation webhook');
-      });
+      logger.info(
+        { irrigationLogId: irrigationLog.id, fieldId, moistureDeficit, status },
+        'Irrigation log created'
+      );
 
-      logger.info({ fieldId, escalated }, 'Critical irrigation - task created');
+      if (status === IrrigationStatus.CRITICAL) {
+        const escalated = await checkEscalation(fieldId);
+        
+        const createdTask = await tx.task.create({
+          data: {
+            fieldId,
+            title: `Critical irrigation required - Field ${field.name}`,
+            description: `Moisture deficit: ${moistureDeficit}. Immediate irrigation needed.`,
+            priority: escalated ? TaskPriority.CRITICAL : TaskPriority.CRITICAL,
+          },
+        });
+
+        createdTaskId = createdTask.id;
+        logger.info({ fieldId, escalated, taskId: createdTaskId }, 'Critical irrigation - task created');
+      }
+    });
+
+    if (status === IrrigationStatus.CRITICAL && irrigationLog) {
+      const escalated = await checkEscalation(fieldId);
+      triggerIrrigationWebhook(irrigationLog, escalated ? IrrigationStatus.CRITICAL : status)
+        .then(async () => {
+          await prisma.notificationLog.create({
+            data: {
+              eventType: 'IRRIGATION_CRITICAL_NOTIFY',
+              relatedEntityId: irrigationLog!.id,
+              deliveryStatus: 'DELIVERED',
+            },
+          });
+        })
+        .catch(async (err) => {
+          logger.error({ error: err, irrigationLogId: irrigationLog!.id }, 'Failed to trigger irrigation webhook');
+          await prisma.notificationLog.create({
+            data: {
+              eventType: 'IRRIGATION_CRITICAL_NOTIFY',
+              relatedEntityId: irrigationLog!.id,
+              deliveryStatus: 'FAILED',
+            },
+          });
+        });
     }
 
-    return successResponse(res, { status }, 'Irrigation log recorded');
+    return successResponse(res, { status, taskId: createdTaskId }, 'Irrigation log recorded');
   } catch (error) {
     logger.error({ error }, 'Error creating irrigation log');
     return errorResponse(res);

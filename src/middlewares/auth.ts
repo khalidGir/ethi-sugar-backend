@@ -4,6 +4,14 @@ import { unauthorizedError } from '../utils/response';
 import { AuthRequest } from '../types/express';
 import { Role } from '../types/enums';
 
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET is not defined in environment variables');
+  }
+  return secret;
+};
+
 export const authenticate = (
   req: AuthRequest,
   res: Response,
@@ -18,7 +26,7 @@ export const authenticate = (
   const token = authHeader.substring(7);
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
+    const decoded = jwt.verify(token, getJwtSecret()) as {
       id: string;
       email: string;
       role: Role;

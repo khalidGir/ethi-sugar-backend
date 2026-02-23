@@ -1,0 +1,344 @@
+{
+  "name": "Image Disease Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "disease-detect",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "ethiosugar-disease"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract photo from Telegram update\nconst body = $input.first().json;\nconst message = body?.message;\nconst photo = message?.photo;\n\nif (!photo || photo.length === 0) {\n  return [];\n}\n\n// Get the largest photo\nconst fileId = photo[photo.length - 1].file_id;\nconst chatId = message?.chat?.id;\n\nreturn [{\n  json: {\n    fileId,\n    chatId,\n    username: message?.from?.username || 'Unknown'\n  }\n}];"
+      },
+      "id": "extract-photo",
+      "name": "Extract Photo",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/getFile",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file_id",
+              "value": "{{$json.fileId}}"
+            }
+          ]
+        }
+      },
+      "id": "get-file",
+      "name": "Get File URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Construct full image URL\nconst filePath = $input.first().json.result.file_path;\nconst imageUrl = `https://api.telegram.org/file/bot${$credentials.telegramBotToken}/${filePath}`;\n\nreturn [{\n  json: {\n    imageUrl,\n    chatId: $('Extract Photo').first().json.chatId,\n    username: $('Extract Photo').first().json.username\n  }\n}];"
+      },
+      "id": "format-url",
+      "name": "Format Image URL",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/v1/detect/detect",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "imageUrl",
+              "value": "{{$json.imageUrl}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "detect-disease",
+      "name": "AI Disease Detection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check confidence threshold\nconst result = $input.first().json.data;\nconst confidence = result?.confidence || 0;\nconst chatId = $('Format Image URL').first().json.chatId;\n\nif (confidence >= 0.8) {\n  return [{\n    json: {\n      ...result,\n      chatId,\n      createIncident: true\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...result,\n    chatId,\n    createIncident: false\n  }\n}];"
+      },
+      "id": "check-confidence",
+      "name": "Check Confidence",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format notification for user\nconst result = $input.first().json;\n\nlet message = '';\nif (result.createIncident) {\n  message = `🦠 <b>Disease Detected!</b>\n\n<b>Disease:</b> ${result.disease}\n<b>Confidence:</b> ${(result.confidence * 100).toFixed(0)}%\n<b>Recommendation:</b> ${result.recommendation}\n\nAn incident has been created. An agronomist will contact you.`;\n} else {\n  message = `✅ <b>No Significant Disease Found</b>\n\nThe image analysis did not detect any major disease issues.\n<b>Note:</b> ${result.recommendation}`;\n}\n\nreturn [{\n  json: {\n    chatId: result.chatId,\n    message\n  }\n}];"
+      },
+      "id": "format-user-msg",
+      "name": "Format User Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{$json.chatId}}"
+            },
+            {
+              "name": "text",
+              "value": "{{$json.message}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "notify-user",
+      "name": "Notify User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 300],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format admin alert if disease detected\nconst result = $input.first().json;\n\nif (!result.createIncident) {\n  return [];\n}\n\nreturn [{\n  json: {\n    message: `🚨 <b>New Disease Alert</b>\n\n<b>Disease:</b> ${result.disease}\n<b>Confidence:</b> ${(result.confidence * 100).toFixed(0)}%\n<b>Action:</b> ${result.recommendation}\n\nPlease create incident in EFMS.`\n  }\n}];"
+      },
+      "id": "format-admin-msg",
+      "name": "Format Admin Alert",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "Khalidblabla"
+            },
+            {
+              "name": "text",
+              "value": "{{$json.message}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "notify-admin",
+      "name": "Alert Agronomist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 300],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Error handler\nreturn {\n  json: {\n    error: $input.first().json.error || 'Unknown error',\n    workflow: 'Image Disease Detection'\n  }\n};"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 450],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "Khalidblabla"
+            },
+            {
+              "name": "text",
+              "value": "🚨 <b>Workflow Error</b>\n\nWorkflow: Image Disease Detection\nError: {{$json.error}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "alert-admin",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 450],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Photo": {
+      "main": [
+        [
+          {
+            "node": "Get File URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File URL": {
+      "main": [
+        [
+          {
+            "node": "Format Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Image URL": {
+      "main": [
+        [
+          {
+            "node": "AI Disease Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Disease Detection": {
+      "main": [
+        [
+          {
+            "node": "Check Confidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Confidence": {
+      "main": [
+        [
+          {
+            "node": "Format User Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format User Message": {
+      "main": [
+        [
+          {
+            "node": "Notify User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify User": {
+      "main": [
+        [
+          {
+            "node": "Format Admin Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        {
+          "node": "Error Handler",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    },
+    "Format Admin Alert": {
+      "main": [
+        [
+          {
+            "node": "Alert Agronomist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["ethiosugar", "disease", "detection"],
+  "triggerCount": 0,
+  "updatedAt": "2026-02-22T12:00:00.000Z",
+  "versionId": "1"
+}

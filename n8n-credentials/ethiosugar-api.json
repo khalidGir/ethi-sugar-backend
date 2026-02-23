@@ -1,0 +1,8 @@
+{
+  "name": "ethiosugar-api",
+  "type": "httpHeaderAuth",
+  "data": {
+    "header": "Authorization",
+    "token": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImU5OTMzN2U0LWFkYzAtNDg2Mi05YmJkLTlhNmZmMTRmNzhiMCIsImVtYWlsIjoiYWRtaW5AZXRoaW9zdWdhci5sb2NhbCIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc3MTg0MDE3MywiZXhwIjoxNzcxOTI2NTczfQ.wGWDgGQ0Przx7p0pMvFEPaHtOxm2LZe6hQPuXTFy510"
+  }
+}

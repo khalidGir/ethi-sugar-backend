@@ -1,4 +1,4 @@
-import express, { Response } from 'express';
+import express, { Response, Request, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
@@ -12,6 +12,9 @@ import incidentsRoutes from './modules/incidents/incidents.routes';
 import irrigationRoutes from './modules/irrigation/irrigation.routes';
 import tasksRoutes from './modules/tasks/tasks.routes';
 import internalRoutes from './modules/internal/internal.routes';
+import telegramRoutes from './modules/telegram/telegram.routes';
+import weatherRoutes from './modules/weather/weather.routes';
+import detectRoutes from './modules/detect/detect.routes';
 import { errorResponse } from './utils/response';
 import logger from './config/logger';
 import swaggerOptions from './config/swagger';
@@ -20,13 +23,51 @@ dotenv.config();
 
 const app = express();
 
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173'];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+};
+
+app.use(helmet());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+const requestCounts: Record<string, number> = {};
+const RATE_LIMIT_WINDOW = 60 * 1000;
+const MAX_REQUESTS = 100;
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const key = req.ip || 'unknown';
+  const now = Date.now();
+  
+  if (!requestCounts[key]) {
+    requestCounts[key] = 0;
+  }
+  
+  if (now - requestCounts[key] > RATE_LIMIT_WINDOW) {
+    requestCounts[key] = 1;
+  } else {
+    requestCounts[key]++;
+  }
+  
+  if (requestCounts[key] > MAX_REQUESTS) {
+    return res.status(429).json({
+      success: false,
+      message: 'Too many requests',
+      code: 'RATE_LIMIT_EXCEEDED',
+    });
+  }
+  
+  next();
+});
 
 const specs = swaggerJsdoc(swaggerOptions);
 
@@ -63,6 +104,9 @@ app.use('/api/v1/incidents', incidentsRoutes);
 app.use('/api/v1/irrigation-logs', irrigationRoutes);
 app.use('/api/v1/irrigation', irrigationRoutes);
 app.use('/api/v1/tasks', tasksRoutes);
+app.use('/api/v1/telegram', telegramRoutes);
+app.use('/api/v1/weather', weatherRoutes);
+app.use('/api/v1/detect', detectRoutes);
 app.use('/internal', internalRoutes);
 
 app.use((req, res: Response) => {
@@ -74,8 +118,14 @@ app.use((req, res: Response) => {
 });
 
 app.use((err: Error, req: express.Request, res: Response, next: express.NextFunction) => {
-  logger.error({ err, path: req.path }, 'Unhandled error');
+  logger.error({ err, path: req.path, method: req.method }, 'Unhandled error');
   return errorResponse(res, 'Internal server error', 'INTERNAL_ERROR', 500);
 });
+
+export const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<Response | void>) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
 
 export default app;

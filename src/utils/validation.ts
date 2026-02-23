@@ -35,7 +35,7 @@ export const updateFieldSchema = z.object({
 export const createIncidentSchema = z.object({
   fieldId: z.string().uuid('Invalid field ID'),
   type: z.enum(['CROP_DISEASE', 'EQUIPMENT_FAILURE', 'IRRIGATION_FAILURE', 'EMERGENCY_EVENT']),
-  severity: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+  severity: z.enum(['NORMAL', 'WARNING', 'CRITICAL']),
   description: z.string().min(1, 'Description is required'),
 });
 
@@ -55,9 +55,11 @@ export const updateTaskStatusSchema = z.object({
 export const createTaskSchema = z.object({
   fieldId: z.string().uuid('Invalid field ID'),
   incidentId: z.string().uuid().optional(),
+  assignedToId: z.string().uuid('Invalid user ID').optional(),
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(1, 'Description is required'),
   priority: z.enum(['NORMAL', 'WARNING', 'CRITICAL']).optional(),
+  dueDate: z.string().datetime().optional(),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -18,6 +18,7 @@ const seed = async () => {
         passwordHash: adminPassword,
         fullName: 'System Admin',
         role: Role.ADMIN,
+        telegramUsername: 'Khalidblabla',
       },
     });
     console.log('Admin created:', admin.email);
@@ -30,6 +31,7 @@ const seed = async () => {
         passwordHash: supervisorPassword,
         fullName: 'Field Supervisor',
         role: Role.SUPERVISOR,
+        telegramUsername: 'imkhalu',
       },
     });
     console.log('Supervisor created:', supervisor.email);
@@ -42,15 +44,16 @@ const seed = async () => {
         passwordHash: workerPassword,
         fullName: 'Farm Worker',
         role: Role.WORKER,
+        telegramUsername: 'seifukasa',
       },
     });
     console.log('Worker created:', worker.email);
 
     await prisma.field.upsert({
-      where: { id: 'field-a' },
+      where: { id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' },
       update: {},
       create: {
-        id: 'field-a',
+        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         name: 'Field A',
         cropType: 'Sugarcane',
         warningThreshold: 10,
@@ -59,10 +62,10 @@ const seed = async () => {
     });
 
     await prisma.field.upsert({
-      where: { id: 'field-b' },
+      where: { id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901' },
       update: {},
       create: {
-        id: 'field-b',
+        id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
         name: 'Field B',
         cropType: 'Sugarcane',
         warningThreshold: 12,

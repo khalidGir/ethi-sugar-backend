@@ -1,0 +1,252 @@
+{
+  "name": "Daily Task Distributor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "6:00 AM Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/v1/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.jwtToken}}"
+            }
+          ]
+        }
+      },
+      "id": "get-tasks",
+      "name": "Get Today's Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300],
+      "credentials": {
+        "httpHeaderAuth": "ethiosugar-api"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Filter tasks due today and not completed\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\nconst tomorrow = new Date(today);\ntomorrow.setDate(tomorrow.getDate() + 1);\n\nconst tasks = $input.first().json.data || [];\nconst todayTasks = tasks.filter(task => {\n  if (task.status === 'COMPLETED') return false;\n  if (!task.assignedToId) return false;\n  const dueDate = task.dueDate ? new Date(task.dueDate) : null;\n  if (!dueDate) return false;\n  return dueDate >= today && dueDate < tomorrow;\n});\n\n// Group by worker\nconst grouped = {};\ntodayTasks.forEach(task => {\n  const workerId = task.assignedToId;\n  if (!grouped[workerId]) {\n    grouped[workerId] = [];\n  }\n  grouped[workerId].push(task);\n});\n\nreturn Object.entries(grouped).map(([workerId, workerTasks]) => ({\n  json: {\n    workerId,\n    tasks: workerTasks\n  }\n}));"
+      },
+      "id": "group-tasks",
+      "name": "Group by Worker",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3001/api/v1/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$credentials.jwtToken}}"
+            }
+          ]
+        }
+      },
+      "id": "get-users",
+      "name": "Get Workers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "credentials": {
+        "httpHeaderAuth": "ethiosugar-api"
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Map worker IDs to usernames\nconst users = $input.first().json.data || [];\nconst userMap = {};\nusers.forEach(user => {\n  userMap[user.id] = user;\n});\n\nconst groupedTasks = $('Group by Worker').all();\n\nreturn groupedTasks.map(item => {\n  const workerId = item.json.workerId;\n  const worker = userMap[workerId];\n  const tasks = item.json.tasks;\n  \n  let message = `📋 <b>Today's Tasks</b>\\n\\n`;\n  tasks.forEach(task => {\n    const emoji = task.priority === 'CRITICAL' ? '🔴' : task.priority === 'WARNING' ? '🟡' : '🟢';\n    message += `${emoji} <b>${task.title}</b>\\n`;\n    message += `   📍 Field: ${task.fieldId}\\n`;\n    message += `   📝 ${task.description}\\n\\n`;\n  });\n  \n  return {\n    json: {\n      chatId: worker?.telegramChatId || 'Khalidblabla',\n      message: message,\n      workerName: worker?.fullName || 'Worker'\n    }\n  };\n});"
+      },
+      "id": "format-messages",
+      "name": "Format Messages",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{$json.chatId}}"
+            },
+            {
+              "name": "text",
+              "value": "{{$json.message}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "send-telegram",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 300],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Error handling - notify admin on failure\nreturn {\n  json: {\n    error: $input.first().json.error || 'Unknown error',\n    workflow: 'Daily Task Distributor'\n  }\n};"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 450],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{$credentials.telegramBotToken}}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "Khalidblabla"
+            },
+            {
+              "name": "text",
+              "value": "🚨 <b>Workflow Error</b>\n\nWorkflow: Daily Task Distributor\nError: {{$json.error}}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        }
+      },
+      "id": "alert-admin",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 450],
+      "credentials": {
+        "telegramBotApi": "ethiosugar-telegram"
+      }
+    }
+  ],
+  "connections": {
+    "6:00 AM Daily": {
+      "main": [
+        [
+          {
+            "node": "Get Today's Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Today's Tasks": {
+      "main": [
+        [
+          {
+            "node": "Group by Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group by Worker": {
+      "main": [
+        [
+          {
+            "node": "Get Workers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Workers": {
+      "main": [
+        [
+          {
+            "node": "Format Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Messages": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram": {
+      "error": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["ethiosugar", "tasks"],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-22T12:00:00.000Z",
+  "versionId": "1"
+}
