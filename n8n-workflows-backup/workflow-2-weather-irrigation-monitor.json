@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "url": "={{$env.BACKEND_URL || 'http://localhost:3001'}}/api/v1/weather/forecast"
+        "url": "http://host.docker.internal:3001/api/v1/weather/forecast"
       },
       "id": "get-weather",
       "name": "Get Weather Forecast",
@@ -30,7 +30,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Check if rain expected > 15mm in next 24h\nconst weather = $input.first().json.data;\nconst todayRain = weather?.forecast?.[0]?.rainfallMm || 0;\nconst tomorrowRain = weather?.forecast?.[1]?.rainfallMm || 0;\nconst totalRain = todayRain + tomorrowRain;\n\nif (totalRain > 15) {\n  return [{ \n    json: { \n      shouldPostpone: true, \n      rainMm: totalRain,\n      todayRain,\n      tomorrowRain,\n      location: weather?.location || 'Farm Location'\n    } \n  }];\n}\n\nreturn [{ \n  json: { \n    shouldPostpone: false, \n    rainMm: totalRain,\n    todayRain,\n    tomorrowRain,\n    location: weather?.location || 'Farm Location'\n  } \n}];"
+        "functionCode": "// Check if rain expected > 15mm in next 24h\nconst weather = $input.first().json.data;\nconst todayRain = weather?.forecast?.[0]?.rainfallMm || 0;\n\nif (todayRain > 15) {\n  return [{ json: { shouldPostpone: true, rainMm: todayRain } }];\n}\n\nreturn [{ json: { shouldPostpone: false, rainMm: todayRain } }];"
       },
       "id": "check-rain",
       "name": "Check Rain Threshold",
@@ -50,7 +50,7 @@
     },
     {
       "parameters": {
-        "url": "={{$env.BACKEND_URL || 'http://localhost:3001'}}/api/v1/tasks",
+        "url": "http://host.docker.internal:3001/api/v1/tasks",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -84,7 +84,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Filter to only irrigation-related tasks\nconst tasks = $input.first().json.data || [];\nconst irrigationTasks = tasks.filter(task => {\n  const title = (task.title || '').toLowerCase();\n  const desc = (task.description || '').toLowerCase();\n  return title.includes('irrigat') || desc.includes('irrigat') || title.includes('water');\n});\n\nreturn irrigationTasks.map(task => ({ \n  json: {\n    ...task,\n    fieldName: task.field?.name || 'Unknown Field'\n  }\n}));"
+        "functionCode": "// Filter to only irrigation-related tasks\nconst tasks = $input.first().json.data || [];\nconst irrigationTasks = tasks.filter(task => {\n  const title = (task.title || '').toLowerCase();\n  const desc = (task.description || '').toLowerCase();\n  return title.includes('irrigat') || desc.includes('irrigat');\n});\n\nreturn irrigationTasks.map(task => ({ json: task }));"
       },
       "id": "filter-irrigation",
       "name": "Filter Irrigation Tasks",
@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "url": "={{$env.BACKEND_URL || 'http://localhost:3001'}}/api/v1/tasks/{{$json.id}}/status",
+        "url": "=http://host.docker.internal:3001/api/v1/tasks/{{$json.id}}/status",
         "method": "PATCH",
         "sendBody": true,
         "bodyParameters": {
@@ -133,7 +133,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Format improved notification message\nconst task = $input.first().json;\nconst rainData = $('Check Rain Threshold').first().json;\nconst timestamp = new Date().toLocaleString('en-US', { \n  timeZone: 'Africa/Addis_Ababa',\n  dateStyle: 'medium',\n  timeStyle: 'short'\n});\n\nreturn {\n  json: {\n    message: `🌧️ <b>Rain Alert - Task Postponed</b>\\n` +\n      `━━━━━━━━━━━━━━━━━━━━━━\\n\\n` +\n      `<b>Task:</b> ${task.title}\\n` +\n      `<b>Field:</b> ${task.fieldName}\\n\\n` +\n      `<b>Weather Update:</b>\\n` +\n      `📍 Location: ${rainData.location}\\n` +\n      `💧 Expected Rain: ${rainData.rainMm.toFixed(1)}mm\\n` +\n      `   • Today: ${rainData.todayRain.toFixed(1)}mm\\n` +\n      `   • Tomorrow: ${rainData.tomorrowRain.toFixed(1)}mm\\n\\n` +\n      `<b>Status:</b> Postponed until weather improves\\n\\n` +\n      `━━━━━━━━━━━━━━━━━━━━━━\\n\\n` +\n      `<b>Next Steps:</b>\\n` +\n      `• Task will be rescheduled automatically\\n` +\n      `• Monitor soil moisture levels\\n` +\n      `• Check weather forecast tomorrow\\n\\n` +\n      `<i>Updated: ${timestamp}</i>`,\n    taskName: task.title,\n    fieldName: task.fieldName,\n    rainMm: rainData.rainMm\n  }\n};"
+        "functionCode": "// Format notification message\nconst task = $input.first().json;\nconst rainMm = $('Check Rain Threshold').first().json.rainMm;\n\nreturn {\n  json: {\n    message: `🌧️ <b>Rain Alert - Task Postponed</b>\\n\\nTask: ${task.title}\\nReason: Rain expected (${rainMm}mm)\\nStatus: Postponed until weather improves\\n\\nPlease check for rescheduling after rain passes.`\n  }\n};"
       },
       "id": "format-message",
       "name": "Format Notification",
@@ -150,7 +150,7 @@
           "parameters": [
             {
               "name": "chat_id",
-              "value": "={{process.env.ADMIN_TELEGRAM_CHAT_ID || 'Khalidblabla'}}"
+              "value": "Khalidblabla"
             },
             {
               "name": "text",
@@ -174,7 +174,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Error handler with detailed context\nconst error = $input.first().json.error || {};\nconst timestamp = new Date().toLocaleString('en-US', { \n  timeZone: 'Africa/Addis_Ababa',\n  dateStyle: 'medium',\n  timeStyle: 'short'\n});\n\nreturn {\n  json: {\n    errorMessage: error.message || error.code || 'Weather monitoring failed',\n    errorDetails: JSON.stringify(error, null, 2),\n    workflow: 'Weather Irrigation Monitor',\n    timestamp: timestamp,\n    severity: 'CRITICAL'\n  }\n};"
+        "functionCode": "// Error handler\nreturn {\n  json: {\n    error: $input.first().json.error || 'Unknown error',\n    workflow: 'Weather Irrigation Monitor'\n  }\n};"
       },
       "id": "error-handler",
       "name": "Error Handler",
@@ -192,11 +192,11 @@
           "parameters": [
             {
               "name": "chat_id",
-              "value": "={{process.env.ADMIN_TELEGRAM_CHAT_ID || 'Khalidblabla'}}"
+              "value": "Khalidblabla"
             },
             {
               "name": "text",
-              "value": "🚨 <b>Workflow Error Alert</b>\\n\\n━━━━━━━━━━━━━━━━━━━━━━\\n🔧 <b>Workflow:</b> Weather Irrigation Monitor\\n⏰ <b>Time:</b> {{$json.timestamp}}\\n🔴 <b>Severity:</b> {{$json.severity}}\\n\\n<b>Error:</b>\\n{{$json.errorMessage}}\\n\\n<b>Details:</b>\\n<code>{{$json.errorDetails}}</code>\\n\\n━━━━━━━━━━━━━━━━━━━━━━\\n<i>Please check the execution logs for more information.</i>"
+              "value": "🚨 <b>Workflow Error</b>\n\nWorkflow: Weather Irrigation Monitor\nError: {{$json.error}}"
             },
             {
               "name": "parse_mode",
@@ -291,13 +291,11 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "Error Handler",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        {
+          "node": "Error Handler",
+          "type": "main",
+          "index": 0
+        }
       ]
     },
     "Format Notification": {
@@ -329,6 +327,6 @@
   "staticData": null,
   "tags": ["ethiosugar", "weather", "irrigation"],
   "triggerCount": 1,
-  "updatedAt": "2026-02-23T10:45:00.000Z",
-  "versionId": "2"
+  "updatedAt": "2026-02-22T12:00:00.000Z",
+  "versionId": "1"
 }

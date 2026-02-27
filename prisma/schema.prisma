@@ -9,7 +9,8 @@ datasource db {
 
 enum Role {
   ADMIN
-  SUPERVISOR
+  MANAGER
+  AGRONOMIST
   WORKER
 }
 
@@ -43,50 +44,103 @@ enum TaskPriority {
   CRITICAL
 }
 
-model User {
-  id           String   @id @default(uuid())
-  fullName     String
-  email        String   @unique
-  passwordHash String
-  role         Role
-  isActive     Boolean  @default(true)
-  telegramUsername String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+enum FertilizerType {
+  UREA
+  DAP
+  NPS
+  COMPOST
+  MANURE
+  OTHER
+}
 
-  incidents      Incident[]      @relation("ReportedIncidents")
-  irrigationLogs IrrigationLog[]
-  assignedTasks  Task[]          @relation("AssignedTasks")
+enum CropPlanStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ApprovalType {
+  CROP_PLAN
+  FERTILIZER
+  IRRIGATION
+  BUDGET
+  DISEASE_ALERT
+  SOIL_DATA
+  AI_RECOMMENDATION
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  fullName           String
+  email              String    @unique
+  passwordHash       String
+  role               Role
+  isActive           Boolean   @default(true)
+  telegramUsername   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  incidents          Incident[]        @relation("ReportedIncidents")
+  irrigationLogs     IrrigationLog[]
+  assignedTasks      Task[]            @relation("AssignedTasks")
+  dailyLogs          WorkerDailyLog[]
+  fertilizerLogs     FertilizerLog[]
+  auditLogs          AuditLog[]
+  requestedApprovals Approval[]        @relation("RequestedApprovals")
+  approvedApprovals  Approval[]        @relation("ApprovedApprovals")
 }
 
 model Field {
-  id               String  @id @default(uuid())
+  id               String   @id @default(uuid())
   name             String
   cropType         String
-  warningThreshold Float   @default(10)
-  criticalThreshold Float  @default(15)
+  warningThreshold Float    @default(10)
+  criticalThreshold Float   @default(15)
+  area             Float?   // hectares
+  coordinates      Json?    // { lat: X, lng: Y }
+  soilType         String?
+  irrigationType   String?  // e.g., "Drip", "Sprinkler", "Flood"
+  plantingDate     DateTime?
+  cropStage        String?  // e.g., "Vegetative", "Flowering"
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  incidents      Incident[]
-  irrigationLogs IrrigationLog[]
-  tasks          Task[]
+  incidents        Incident[]
+  irrigationLogs   IrrigationLog[]
+  tasks            Task[]
+  soilData         SoilData[]
+  dailyLogs        WorkerDailyLog[]
+  fertilizerLogs   FertilizerLog[]
+  cropPlans        CropPlan[]
 }
 
 model Incident {
-  id          String        @id @default(uuid())
-  field       Field         @relation(fields: [fieldId], references: [id])
-  fieldId     String
-  reportedBy  User          @relation("ReportedIncidents", fields: [reportedById], references: [id])
+  id           String         @id @default(uuid())
+  field        Field          @relation(fields: [fieldId], references: [id])
+  fieldId      String
+  reportedBy   User           @relation("ReportedIncidents", fields: [reportedById], references: [id])
   reportedById String
 
-  type        IncidentType
-  severity    Severity
-  description String
-  status      IncidentStatus @default(OPEN)
+  type         IncidentType
+  severity     Severity
+  description  String
+  status       IncidentStatus @default(OPEN)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   relatedTasks Task[]
 }
@@ -105,25 +159,32 @@ model IrrigationLog {
 }
 
 model Task {
-  id          String      @id @default(uuid())
-  field       Field       @relation(fields: [fieldId], references: [id])
-  fieldId     String
+  id              String       @id @default(uuid())
+  field           Field        @relation(fields: [fieldId], references: [id])
+  fieldId         String
 
-  incident    Incident?   @relation(fields: [incidentId], references: [id])
-  incidentId  String?
+  incident        Incident?    @relation(fields: [incidentId], references: [id])
+  incidentId      String?
 
-  assignedTo  User?       @relation("AssignedTasks", fields: [assignedToId], references: [id])
-  assignedToId String?
+  assignedTo      User?        @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  assignedToId    String?
 
-  title       String
-  description String
-  status      TaskStatus  @default(OPEN)
-  priority    TaskPriority @default(NORMAL)
-  dueDate     DateTime?
-  completedAt DateTime?
+  title           String
+  description     String
+  status          TaskStatus   @default(OPEN)
+  priority        TaskPriority @default(NORMAL)
+  dueDate         DateTime?
+  completedAt     DateTime?
+  recurring       Boolean      @default(false)
+  recurrencePattern String?    // e.g., "DAILY", "WEEKLY"
+  templateId      String?      // for task templates
+  estimatedHours  Float?
+  actualHours     Float?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  dailyLogs       WorkerDailyLog[]
 
   @@index([status])
   @@index([assignedToId])
@@ -132,13 +193,13 @@ model Task {
 }
 
 model TaskHistory {
-  id            String      @id @default(uuid())
-  taskId        String
+  id             String       @id @default(uuid())
+  taskId         String
   previousStatus TaskStatus?
-  newStatus     TaskStatus
-  changedBy     String
-  note          String?
-  createdAt     DateTime    @default(now())
+  newStatus      TaskStatus
+  changedBy      String
+  note           String?
+  createdAt      DateTime     @default(now())
 
   @@index([taskId])
   @@index([changedBy])
@@ -151,4 +212,218 @@ model NotificationLog {
   relatedEntityId String
   deliveryStatus  String
   createdAt       DateTime @default(now())
+}
+
+// Soil Data Model (Section 4.4)
+model SoilData {
+  id                   String   @id @default(uuid())
+  fieldId              String
+  field                Field    @relation(fields: [fieldId], references: [id])
+  
+  // Nutrient levels
+  nitrogen             Float    // mg/kg or ppm
+  phosphorus           Float    // mg/kg or ppm
+  potassium            Float    // mg/kg or ppm
+  
+  // Soil properties
+  pH                   Float
+  organicMatter        Float?   // percentage
+  electricalConductivity Float? // mS/cm
+  soilType             String?  // e.g., "Clay", "Loam", "Sandy"
+  
+  // Metadata
+  sampleDepth          Float?   // cm
+  analyzedAt           DateTime
+  labReportUrl         String?
+  analyzedBy           String?  // lab name or agronomist
+  
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([fieldId])
+  @@index([analyzedAt])
+}
+
+// Weather Record Model (Section 4.3)
+model WeatherRecord {
+  id              String   @id @default(uuid())
+  location        String   @default("Addis Ababa")
+  latitude        Float?
+  longitude       Float?
+  
+  // Weather data
+  temperature     Float    // °C
+  humidity        Float    // %
+  rainfall        Float    // mm
+  windSpeed       Float?   // m/s
+  windDirection   String?  // e.g., "NE", "SW"
+  solarRadiation  Float?   // W/m²
+  cloudCover      Float?   // %
+  
+  // Forecast flag
+  isForecast      Boolean  @default(false)
+  forecastDate    DateTime?
+  
+  recordedAt      DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([location])
+  @@index([recordedAt])
+  @@index([isForecast])
+}
+
+// Worker Daily Log Model (Section 4.2)
+model WorkerDailyLog {
+  id                 String           @id @default(uuid())
+  workerId           String
+  worker             User             @relation(fields: [workerId], references: [id])
+  
+  taskId             String?
+  task               Task?            @relation(fields: [taskId], references: [id])
+  
+  fieldId            String
+  field              Field            @relation(fields: [fieldId], references: [id])
+  
+  activity           String           // e.g., "Weeding", "Irrigation", "Spraying"
+  activityType       String           // e.g., "MAINTENANCE", "HARVEST", "PLANTING"
+  
+  hoursSpent         Float
+  resourcesUsed      String?          // JSON or text description
+  observations       String?          // worker notes
+  photos             String[]         // array of photo URLs
+  
+  // Quality control
+  verifiedBy         String?          // supervisor ID
+  verifiedAt         DateTime?
+  verificationStatus VerificationStatus @default(PENDING) // PENDING, VERIFIED, REJECTED
+  
+  loggedAt           DateTime         @default(now())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([workerId])
+  @@index([fieldId])
+  @@index([loggedAt])
+  @@index([verificationStatus])
+}
+
+// Fertilizer Log Model (Section 4.4)
+model FertilizerLog {
+  id                String         @id @default(uuid())
+  fieldId           String
+  field             Field          @relation(fields: [fieldId], references: [id])
+  
+  fertilizerType    FertilizerType
+  fertilizerName    String         // e.g., "Urea 46-0-0"
+  
+  applicationRate   Float          // kg/hectare
+  totalAmount       Float          // kg used
+  cost              Float?         // ETB (Ethiopian Birr)
+  
+  applicationMethod String         // e.g., "Broadcasting", "Side-dressing"
+  growthStage       String?        // e.g., "Vegetative", "Flowering"
+  
+  appliedBy         String
+  appliedByUser     User           @relation(fields: [appliedBy], references: [id])
+  
+  notes             String?
+  appliedAt         DateTime
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([fieldId])
+  @@index([appliedAt])
+}
+
+// Crop Plan Model (Section 3.5)
+model CropPlan {
+  id                String         @id @default(uuid())
+  fieldId           String
+  field             Field          @relation(fields: [fieldId], references: [id])
+  
+  season            String         // e.g., "2026 BelG", "2026 Meher"
+  cropType          String
+  cropVariety       String?        // e.g., "Maize - BH660"
+  
+  plannedArea       Float          // hectares
+  plantedArea       Float?
+  
+  plantingDate      DateTime
+  expectedHarvestDate DateTime
+  
+  targetYield       Float?         // tons/hectare
+  actualYield       Float?
+  
+  budget            Float?         // planned budget ETB
+  actualCost        Float?
+  
+  status            CropPlanStatus @default(PLANNED)
+  
+  createdBy         String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([fieldId])
+  @@index([season])
+  @@index([status])
+}
+
+// Audit Log Model (Section 11.2)
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  action      String   // e.g., "CREATE", "UPDATE", "DELETE"
+  entity      String   // e.g., "Task", "SoilData", "Field"
+  entityId    String
+  
+  changes     Json     // { before: {...}, after: {...} }
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+// Approval Workflow Model
+model Approval {
+  id              String         @id @default(uuid())
+  
+  // Approval details
+  type            ApprovalType
+  referenceId     String         // ID of related entity (e.g., CropPlan ID, FertilizerLog ID)
+  requestedById   String
+  requestedBy     User           @relation("RequestedApprovals", fields: [requestedById], references: [id])
+  
+  // Required approver role
+  requiredRole    Role           // MANAGER or AGRONOMIST
+  
+  // Status
+  status          ApprovalStatus @default(PENDING)
+  
+  // AI confidence score (nullable - for AI recommendations)
+  confidenceScore Float?
+  
+  // Rejection reason or notes
+  reason          String?
+  
+  // Approval details
+  approvedById    String?
+  approvedBy      User?          @relation("ApprovedApprovals", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([requiredRole])
+  @@index([requestedById])
+  @@index([approvedById])
+  @@index([createdAt])
 }

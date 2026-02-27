@@ -33,7 +33,7 @@ const router = Router();
  *       404:
  *         description: Field or user not found
  */
-router.post('/', authenticate, authorize(Role.SUPERVISOR, Role.ADMIN), validate(createTaskSchema), async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, authorize(Role.MANAGER, Role.ADMIN), validate(createTaskSchema), async (req: AuthRequest, res: Response) => {
   try {
     const data = req.body as CreateTaskInput;
     const userId = req.user!.id;
@@ -254,10 +254,10 @@ router.patch('/:id/status', authenticate, validate(updateTaskStatusSchema), asyn
     }
 
     const isAdmin = user.role === Role.ADMIN;
-    const isSupervisor = user.role === Role.SUPERVISOR;
+    const isManager = user.role === Role.MANAGER;
     const isAssignedWorker = user.role === Role.WORKER && task.assignedToId === user.id;
 
-    if (!isAdmin && !isSupervisor && !isAssignedWorker) {
+    if (!isAdmin && !isManager && !isAssignedWorker) {
       return errorResponse(res, 'You are not authorized to update this task', 'FORBIDDEN', 403);
     }
 

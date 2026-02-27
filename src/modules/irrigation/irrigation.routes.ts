@@ -73,7 +73,7 @@ const checkEscalation = async (fieldId: string): Promise<boolean> => {
  *       404:
  *         description: Field not found
  */
-router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate(createIrrigationLogSchema), async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, authorize(Role.WORKER, Role.MANAGER), validate(createIrrigationLogSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { fieldId, moistureDeficit } = req.body as CreateIrrigationLogInput;
     const userId = req.user!.id;

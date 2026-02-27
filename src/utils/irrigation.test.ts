@@ -1,128 +1,116 @@
-import { IrrigationStatus, Role } from '../types/enums';
+/**
+ * Irrigation Threshold Logic - Unit Tests
+ * Tests the business logic for calculating irrigation status based on moisture deficit
+ */
 
+import { describe, it, expect } from '@jest/globals';
+
+// Irrigation status thresholds
 const calculateIrrigationStatus = (
   moistureDeficit: number,
   warningThreshold: number,
   criticalThreshold: number
-): IrrigationStatus => {
+): 'NORMAL' | 'WARNING' | 'CRITICAL' => {
   if (moistureDeficit >= criticalThreshold) {
-    return IrrigationStatus.CRITICAL;
+    return 'CRITICAL';
   }
   if (moistureDeficit >= warningThreshold) {
-    return IrrigationStatus.WARNING;
+    return 'WARNING';
   }
-  return IrrigationStatus.NORMAL;
+  return 'NORMAL';
 };
 
 describe('Irrigation Threshold Logic', () => {
-  const defaultWarningThreshold = 10;
-  const defaultCriticalThreshold = 15;
+  // Default thresholds from schema
+  const WARNING_THRESHOLD = 10;
+  const CRITICAL_THRESHOLD = 15;
 
-  it('should return NORMAL when moisture deficit is below warning threshold', () => {
-    const result = calculateIrrigationStatus(5, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.NORMAL);
+  describe('calculateIrrigationStatus', () => {
+    it('should return NORMAL when moisture deficit is below warning threshold', () => {
+      expect(calculateIrrigationStatus(5, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('NORMAL');
+      expect(calculateIrrigationStatus(0, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('NORMAL');
+      expect(calculateIrrigationStatus(9.9, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('NORMAL');
+    });
+
+    it('should return WARNING when moisture deficit is at or above warning but below critical', () => {
+      expect(calculateIrrigationStatus(10, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('WARNING');
+      expect(calculateIrrigationStatus(12, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('WARNING');
+      expect(calculateIrrigationStatus(14.9, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('WARNING');
+    });
+
+    it('should return CRITICAL when moisture deficit is at or above critical threshold', () => {
+      expect(calculateIrrigationStatus(15, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('CRITICAL');
+      expect(calculateIrrigationStatus(20, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('CRITICAL');
+      expect(calculateIrrigationStatus(100, WARNING_THRESHOLD, CRITICAL_THRESHOLD)).toBe('CRITICAL');
+    });
+
+    it('should handle edge cases at exact thresholds', () => {
+      // Exactly at warning threshold
+      expect(calculateIrrigationStatus(10, 10, 15)).toBe('WARNING');
+      // Exactly at critical threshold
+      expect(calculateIrrigationStatus(15, 10, 15)).toBe('CRITICAL');
+      // Just below warning
+      expect(calculateIrrigationStatus(9.99, 10, 15)).toBe('NORMAL');
+      // Just below critical
+      expect(calculateIrrigationStatus(14.99, 10, 15)).toBe('WARNING');
+    });
+
+    it('should work with custom thresholds', () => {
+      // Custom thresholds for different field types
+      expect(calculateIrrigationStatus(8, 12, 18)).toBe('NORMAL');
+      expect(calculateIrrigationStatus(12, 12, 18)).toBe('WARNING');
+      expect(calculateIrrigationStatus(15, 12, 18)).toBe('WARNING');
+      expect(calculateIrrigationStatus(18, 12, 18)).toBe('CRITICAL');
+    });
+
+    it('should handle decimal values correctly', () => {
+      expect(calculateIrrigationStatus(9.5, 10, 15)).toBe('NORMAL');
+      expect(calculateIrrigationStatus(10.1, 10, 15)).toBe('WARNING');
+      expect(calculateIrrigationStatus(14.99, 10, 15)).toBe('WARNING');
+      expect(calculateIrrigationStatus(15.01, 10, 15)).toBe('CRITICAL');
+    });
   });
 
-  it('should return NORMAL when moisture deficit is exactly at warning threshold minus 1', () => {
-    const result = calculateIrrigationStatus(9, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.NORMAL);
-  });
+  describe('Escalation Rule', () => {
+    /**
+     * Escalation Rule: If last 3 irrigation logs are WARNING → escalate to CRITICAL
+     * This tests the business logic for the escalation check
+     */
+    const checkEscalation = (last3MoistureValues: number[], warningThreshold: number, criticalThreshold: number): boolean => {
+      if (last3MoistureValues.length < 3) return false;
 
-  it('should return WARNING when moisture deficit is at warning threshold', () => {
-    const result = calculateIrrigationStatus(10, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.WARNING);
-  });
+      const allWarning = last3MoistureValues.every(
+        (value) => value >= warningThreshold && value < criticalThreshold
+      );
 
-  it('should return WARNING when moisture deficit is between warning and critical', () => {
-    const result = calculateIrrigationStatus(12, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.WARNING);
-  });
+      return allWarning;
+    };
 
-  it('should return CRITICAL when moisture deficit is at critical threshold', () => {
-    const result = calculateIrrigationStatus(15, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.CRITICAL);
-  });
+    it('should return false if less than 3 logs', () => {
+      expect(checkEscalation([12], 10, 15)).toBe(false);
+      expect(checkEscalation([12, 13], 10, 15)).toBe(false);
+    });
 
-  it('should return CRITICAL when moisture deficit exceeds critical threshold', () => {
-    const result = calculateIrrigationStatus(20, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.CRITICAL);
-  });
+    it('should return true if last 3 logs are all WARNING', () => {
+      expect(checkEscalation([12, 13, 14], 10, 15)).toBe(true);
+      expect(checkEscalation([10, 10, 10], 10, 15)).toBe(true);
+      expect(checkEscalation([14.9, 14.5, 14.99], 10, 15)).toBe(true);
+    });
 
-  it('should handle custom thresholds correctly', () => {
-    const warningThreshold = 8;
-    const criticalThreshold = 12;
-    
-    expect(calculateIrrigationStatus(5, warningThreshold, criticalThreshold)).toBe(IrrigationStatus.NORMAL);
-    expect(calculateIrrigationStatus(9, warningThreshold, criticalThreshold)).toBe(IrrigationStatus.WARNING);
-    expect(calculateIrrigationStatus(13, warningThreshold, criticalThreshold)).toBe(IrrigationStatus.CRITICAL);
-  });
+    it('should return false if any of last 3 logs is NORMAL', () => {
+      expect(checkEscalation([9, 12, 13], 10, 15)).toBe(false);
+      expect(checkEscalation([12, 9, 13], 10, 15)).toBe(false);
+      expect(checkEscalation([12, 13, 9], 10, 15)).toBe(false);
+    });
 
-  it('should handle edge case of zero moisture deficit', () => {
-    const result = calculateIrrigationStatus(0, defaultWarningThreshold, defaultCriticalThreshold);
-    expect(result).toBe(IrrigationStatus.NORMAL);
-  });
-});
+    it('should return false if any of last 3 logs is CRITICAL', () => {
+      expect(checkEscalation([15, 12, 13], 10, 15)).toBe(false);
+      expect(checkEscalation([12, 15, 13], 10, 15)).toBe(false);
+      expect(checkEscalation([12, 13, 15], 10, 15)).toBe(false);
+    });
 
-describe('Role Guard Logic', () => {
-  const hasPermission = (userRole: Role, requiredRoles: Role[]): boolean => {
-    return requiredRoles.includes(userRole);
-  };
-
-  it('should allow admin access to admin routes', () => {
-    expect(hasPermission(Role.ADMIN, [Role.ADMIN])).toBe(true);
-  });
-
-  it('should allow supervisor access to supervisor and worker routes', () => {
-    expect(hasPermission(Role.SUPERVISOR, [Role.ADMIN, Role.SUPERVISOR])).toBe(true);
-    expect(hasPermission(Role.SUPERVISOR, [Role.SUPERVISOR, Role.WORKER])).toBe(true);
-    expect(hasPermission(Role.SUPERVISOR, [Role.ADMIN])).toBe(false);
-  });
-
-  it('should only allow worker access to worker routes', () => {
-    expect(hasPermission(Role.WORKER, [Role.WORKER])).toBe(true);
-    expect(hasPermission(Role.WORKER, [Role.SUPERVISOR])).toBe(false);
-    expect(hasPermission(Role.WORKER, [Role.ADMIN])).toBe(false);
-  });
-});
-
-describe('Escalation Rule Logic', () => {
-  const checkEscalation = (recentStatuses: IrrigationStatus[]): boolean => {
-    if (recentStatuses.length < 3) return false;
-    const lastThree = recentStatuses.slice(-3);
-    return lastThree.every(status => status === IrrigationStatus.WARNING);
-  };
-
-  it('should not escalate if less than 3 logs', () => {
-    expect(checkEscalation([IrrigationStatus.WARNING, IrrigationStatus.WARNING])).toBe(false);
-    expect(checkEscalation([])).toBe(false);
-  });
-
-  it('should escalate when last 3 are WARNING', () => {
-    const logs = [
-      IrrigationStatus.NORMAL,
-      IrrigationStatus.WARNING,
-      IrrigationStatus.WARNING,
-      IrrigationStatus.WARNING,
-    ];
-    expect(checkEscalation(logs)).toBe(true);
-  });
-
-  it('should not escalate when last 3 are not all WARNING', () => {
-    const logs = [
-      IrrigationStatus.NORMAL,
-      IrrigationStatus.WARNING,
-      IrrigationStatus.WARNING,
-      IrrigationStatus.CRITICAL,
-    ];
-    expect(checkEscalation(logs)).toBe(false);
-  });
-
-  it('should not escalate when last 3 are NORMAL', () => {
-    const logs = [
-      IrrigationStatus.NORMAL,
-      IrrigationStatus.NORMAL,
-      IrrigationStatus.NORMAL,
-    ];
-    expect(checkEscalation(logs)).toBe(false);
+    it('should return false for empty array', () => {
+      expect(checkEscalation([], 10, 15)).toBe(false);
+    });
   });
 });

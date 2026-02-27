@@ -11,6 +11,38 @@ import logger from '../../config/logger';
 
 const router = Router();
 
+// Hardcoded test credentials for development
+const HARDCODED_CREDENTIALS = {
+  ADMIN: {
+    email: 'admin@ethiosugar.local',
+    password: 'Admin123!',
+    fullName: 'System Admin',
+    role: Role.ADMIN,
+    id: 'admin-hardcoded-id',
+  },
+  MANAGER: {
+    email: 'manager@ethiosugar.local',
+    password: 'Manager123!',
+    fullName: 'Farm Manager',
+    role: Role.MANAGER,
+    id: 'manager-hardcoded-id',
+  },
+  AGRONOMIST: {
+    email: 'agronomist@ethiosugar.local',
+    password: 'Agronomist123!',
+    fullName: 'Chief Agronomist',
+    role: Role.AGRONOMIST,
+    id: 'agronomist-hardcoded-id',
+  },
+  WORKER: {
+    email: 'worker@ethiosugar.local',
+    password: 'Worker123!',
+    fullName: 'Farm Worker',
+    role: Role.WORKER,
+    id: 'worker-hardcoded-id',
+  },
+};
+
 /**
  * @swagger
  * /api/v1/auth/login:
@@ -42,6 +74,37 @@ router.post('/login', validate(loginSchema), async (req, res: Response) => {
   try {
     const { email, password } = req.body as LoginInput;
 
+    // Check hardcoded credentials first
+    const hardcodedUser = Object.values(HARDCODED_CREDENTIALS).find(
+      (cred) => cred.email === email && cred.password === password
+    );
+
+    if (hardcodedUser) {
+      if (!process.env.JWT_SECRET) {
+        logger.error('JWT_SECRET is not defined');
+        return errorResponse(res, 'Server configuration error', 'CONFIG_ERROR', 500);
+      }
+
+      const token = jwt.sign(
+        { id: hardcodedUser.id, email: hardcodedUser.email, role: hardcodedUser.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      logger.info({ userId: hardcodedUser.id, role: hardcodedUser.role }, 'User logged in (hardcoded)');
+
+      return successResponse(res, {
+        token,
+        user: {
+          id: hardcodedUser.id,
+          fullName: hardcodedUser.fullName,
+          role: hardcodedUser.role,
+          email: hardcodedUser.email,
+        },
+      });
+    }
+
+    // Fallback to database lookup
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) {
       logger.warn({ email }, 'Login attempt failed - invalid credentials');

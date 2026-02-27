@@ -1,12 +1,14 @@
 import { Router, Response } from 'express';
+import { AuthRequest } from '../../types/express';
 import prisma from '../../config/database';
 import { createIncidentSchema, updateIncidentStatusSchema, CreateIncidentInput, UpdateIncidentStatusInput } from '../../utils/validation';
 import { validate } from '../../middlewares/validate';
 import { authenticate, authorize } from '../../middlewares/auth';
 import { successResponse, notFoundError, errorResponse } from '../../utils/response';
-import { Role } from '../../types/enums';
+import { Role, ApprovalType } from '../../types/enums';
 import { triggerIncidentWebhook } from '../integrations/n8n/n8n.service';
 import logger from '../../config/logger';
+import { createApprovalRequest } from '../../utils/approval';
 
 const router = Router();
 
@@ -54,7 +56,7 @@ const router = Router();
  *       404:
  *         description: Field not found
  */
-router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate(createIncidentSchema), async (req, res: Response) => {
+router.post('/', authenticate, authorize(Role.WORKER, Role.AGRONOMIST), validate(createIncidentSchema), async (req: AuthRequest, res: Response) => {
   try {
     const data = req.body as CreateIncidentInput;
     const userId = req.user!.id;
@@ -68,12 +70,12 @@ router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate
       data: {
         fieldId: data.fieldId,
         reportedById: userId,
-        type: data.type,
-        severity: data.severity,
+        type: data.type as any,
+        severity: data.severity as any,
         description: data.description,
       },
       include: {
-        field: true,
+        field: { select: { id: true, name: true } },
         reportedBy: {
           select: { fullName: true, email: true },
         },
@@ -82,7 +84,28 @@ router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate
 
     logger.info({ incidentId: incident.id, type: incident.type, severity: incident.severity }, 'Incident created');
 
-    triggerIncidentWebhook(incident).catch((err) => {
+    // Create approval request for disease alerts requiring agronomist validation
+    if (incident.type === 'CROP_DISEASE') {
+      await createApprovalRequest({
+        type: ApprovalType.DISEASE_ALERT,
+        referenceId: incident.id,
+        requestedById: userId,
+        requiredRole: Role.AGRONOMIST,
+        reason: 'Disease alert requires agronomist validation',
+      });
+      logger.info({ incidentId: incident.id }, 'Validation request created for disease alert');
+    }
+
+    // Trigger webhook with properly shaped payload
+    triggerIncidentWebhook({
+      id: incident.id,
+      type: incident.type as any,
+      severity: incident.severity as any,
+      description: incident.description,
+      status: incident.status,
+      field: incident.field,
+      createdAt: incident.createdAt,
+    }).catch((err) => {
       logger.error({ error: err, incidentId: incident.id }, 'Failed to trigger incident webhook');
     });
 
@@ -121,7 +144,7 @@ router.post('/', authenticate, authorize(Role.WORKER, Role.SUPERVISOR), validate
  *                   items:
  *                     $ref: '#/components/schemas/Incident'
  */
-router.get('/', authenticate, async (req, res: Response) => {
+router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     let where = {};
@@ -177,7 +200,7 @@ router.get('/', authenticate, async (req, res: Response) => {
  *       404:
  *         description: Incident not found
  */
-router.patch('/:id/status', authenticate, authorize(Role.SUPERVISOR, Role.ADMIN), validate(updateIncidentStatusSchema), async (req, res: Response) => {
+router.patch('/:id/status', authenticate, authorize(Role.MANAGER, Role.ADMIN), validate(updateIncidentStatusSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { status } = req.body as UpdateIncidentStatusInput;

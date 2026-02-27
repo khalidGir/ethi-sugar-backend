@@ -33,7 +33,7 @@ This guide will help you configure n8n credentials and import workflows for the 
 4. **Click** "Save"
 
 **Expected Result:** ✅ Green checkmark appears
-
+-
 ---
 
 ### Step 3: Create API Credential

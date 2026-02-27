@@ -75,19 +75,19 @@ export async function getCurrentWeather(): Promise<{
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code`;
   
   const response = await fetch(url);
-  
+
   if (!response.ok) {
     throw new Error(`Weather API error: ${response.status}`);
   }
-  
-  const data = await response.json();
-  
+
+  const data = await response.json() as any;
+
   const weatherCode = data.current.weather_code;
   let condition = 'Clear';
   if (weatherCode >= 61 && weatherCode < 65) condition = 'Rain';
   else if (weatherCode >= 65 && weatherCode < 80) condition = 'Rain';
   else if (weatherCode >= 95) condition = 'Thunderstorm';
-  
+
   return {
     temperature: data.current.temperature_2m,
     humidity: data.current.relative_humidity_2m,

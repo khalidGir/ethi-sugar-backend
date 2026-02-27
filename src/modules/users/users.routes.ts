@@ -196,4 +196,71 @@ router.delete('/:id', authenticate, authorize(Role.ADMIN), async (req, res: Resp
   }
 });
 
+/**
+ * @swagger
+ * /api/v1/users/notifications:
+ *   get:
+ *     summary: List notification logs
+ *     description: Get all notification logs (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Items per page
+ *       - in: query
+ *         name: eventType
+ *         schema:
+ *           type: string
+ *         description: Filter by event type
+ *     responses:
+ *       200:
+ *         description: List of notification logs
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/notifications', authenticate, authorize(Role.ADMIN), async (req, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const eventType = req.query.eventType as string | undefined;
+
+    const skip = (page - 1) * limit;
+    const where = eventType ? { eventType } : {};
+
+    const [notifications, total] = await Promise.all([
+      prisma.notificationLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.notificationLog.count({ where }),
+    ]);
+
+    return successResponse(res, {
+      notifications,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching notification logs');
+    return errorResponse(res);
+  }
+});
+
 export default router;
