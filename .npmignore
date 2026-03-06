@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Development files
+src/
+*.ts
+!*.d.ts
+tsconfig.json
+
+# Documentation
+*.md
+!README.md
+
+# Demo/Dev files
+demo-*
+*-demo.yml
+cpanel_extracted/
+ethiosugar-backend-cpanel.zip
+nul
+
+# Test files
+*.test.ts
+*.spec.ts
+jest.config.js
+
+# n8n files (not needed for backend)
+n8n-credentials/
+n8n-workflows/
+n8n-workflows-backup/
+
+# Uploads (should be on cloud storage in production)
+uploads/
