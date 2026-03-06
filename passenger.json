@@ -1,0 +1,10 @@
+{
+  "port": 3000,
+  "protocol": "http",
+  "engine": "node",
+  "restart": "always",
+  "daemon": false,
+  "envvars": {
+    "NODE_ENV": "production"
+  }
+}
